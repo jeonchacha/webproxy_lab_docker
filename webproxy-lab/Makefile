@@ -8,7 +8,7 @@ CC = gcc
 CFLAGS = -g -Wall
 LDFLAGS = -lpthread
 
-all: proxy
+all: proxy echoclient echoserver
 
 csapp.o: csapp.c csapp.h
 	$(CC) $(CFLAGS) -c csapp.c
@@ -18,6 +18,18 @@ proxy.o: proxy.c csapp.h
 
 proxy: proxy.o csapp.o
 	$(CC) $(CFLAGS) proxy.o csapp.o -o proxy $(LDFLAGS)
+
+echoclient.o: echoclient.c csapp.h
+	$(CC) $(CFLAGS) -c echoclient.c
+
+echoclient: echoclient.o csapp.o
+	$(CC) $(CFLAGS) echoclient.o csapp.o -o echoclient $(LDFLAGS)
+
+echoserver.o: echoserver.c csapp.h
+	$(CC) $(CFLAGS) -c echoserver.c
+
+echoserver: echoserver.o csapp.o
+	$(CC) $(CFLAGS) echoserver.o csapp.o -o echoserver $(LDFLAGS)
 
 # Creates a tarball in ../proxylab-handin.tar that you can then
 # hand in. DO NOT MODIFY THIS!
