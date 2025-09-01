@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Adder Form (CGI)</title>
+</head>
+<body>
+  <h1>CGI Adder</h1>
+  <!-- GET으로 /cgi-bin/adder 에 a, b를 전달 -->
+  <form action="/cgi-bin/adder" method="get">
+    <label>
+      첫번째 숫자:
+      <input type="text" name="a" required />
+    </label>
+    <br />
+    <label>
+      두번째 숫자:
+      <input type="text" name="b" required />
+    </label>
+    <br />
+    <button type="submit">Add</button>
+  </form>
+</body>
+</html>

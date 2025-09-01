@@ -11,7 +11,7 @@
 void doit(int fd);
 void read_requesthdrs(rio_t *rp);
 int parse_uri(char *uri, char *filename, char *cgiargs);
-void serve_static(int fd, char *filename, int filesize);
+void serve_static(int fd, char *filename, int filesize, int is_haed);
 void get_filetype(char *filename, char *filetype);
 void serve_dynamic(int fd, char *filename, char *cgiargs);
 void clienterror(int fd, char *cause, char *errnum, char *shortmsg,
@@ -57,6 +57,7 @@ void doit(int fd)
   char buf[MAXLINE], method[MAXLINE], uri[MAXLINE], version[MAXLINE]; // 요청 라인 파싱 버퍼
   char filename[MAXLINE], cgiargs[MAXLINE]; // 서비스 대상 경로, CGI 인자
   rio_t rio;
+  int is_head;
 
   /* Read request line and headers */
   Rio_readinitb(&rio, fd);            // fd로 rio 버퍼 초기화
@@ -65,7 +66,14 @@ void doit(int fd)
   printf("%s", buf);
   sscanf(buf, "%s %s %s", method, uri, version); // 메서드/URI/버전 추출 -> "GET /path HTTP/1.1"
 
-  if (strcasecmp(method, "GET")) { // 메서드 체크(GET만 지원, HEAD/POST 등은 501).
+  /* 메서드 체크(GET, HEAD 외 501) */
+  if (!strcasecmp(method, "GET")) {
+    is_head = 0;
+  } 
+  else if(!strcasecmp(method, "HEAD")) {
+    is_head = 1;
+  } 
+  else {
     clienterror(fd, method, "501", "Not implemented", "Tiny does not implement this method");
     return;
   }
@@ -86,13 +94,19 @@ void doit(int fd)
       clienterror(fd, filename, "403", "Forbidden", "Tiny couldn't read this file");
       return;
     }
-    serve_static(fd, filename, sbuf.st_size);
+    serve_static(fd, filename, sbuf.st_size, is_head);
   }
   else { /* Serve dynamic content */
     if (!(S_ISREG(sbuf.st_mode)) || !(S_IXUSR & sbuf.st_mode)) {
       clienterror(fd, filename, "403", "Forbidden", "Tiny couldn't run the CGI program");
       return;
     }
+
+    if (is_head) { /* 동적 HEAD는 미지원 */
+      clienterror(fd, method, "501", "Not implemented", "HEAD for CGI is not supported");
+      return;
+    }
+
     serve_dynamic(fd, filename, cgiargs);
   }
 }
@@ -164,7 +178,7 @@ int parse_uri(char *uri, char *filename, char *cgiargs)
 }
 
 /* 정적 컨텐츠를 클라이언트에게 서비스한다. */
-void serve_static(int fd, char *filename, int filesize)
+void serve_static(int fd, char *filename, int filesize, int is_haed)
 {
   int srcfd;
   char *srcp, filetype[MAXLINE], buf[MAXBUF];
@@ -180,12 +194,32 @@ void serve_static(int fd, char *filename, int filesize)
   printf("Response headers:\n");
   printf("%s", buf);
 
+  /* HEAD 요청이면 바디 전송 생략 */
+  if (is_haed) return;
+
   /* Send response body to client */
   srcfd = Open(filename, O_RDONLY, 0);
-  srcp = Mmap(0, filesize, PROT_READ, MAP_PRIVATE, srcfd, 0); // mmap으로 매핑 후 Rio_writen으로 본문 전송
+
+  /* mmap으로 매핑 후 Rio_writen으로 본문 전송 */
+  // srcp = Mmap(0, filesize, PROT_READ, MAP_PRIVATE, srcfd, 0); // 파일을 가상메모리에 매핑
+  // Close(srcfd);
+  // Rio_writen(fd, srcp, filesize); // 유저->커널 복사1회
+  // Munmap(srcp, filesize);
+
+  /* malloc + rio_readn + rio_writen */
+  srcp = (char *)Malloc((size_t)filesize); // 힙 버퍼 확보
+  ssize_t nread = Rio_readn(srcfd, srcp, (size_t)filesize); // 커널->유저 복사1회
   Close(srcfd);
-  Rio_writen(fd, srcp, filesize);
-  Munmap(srcp, filesize);
+  Rio_writen(fd, srcp, (size_t)nread); // 유저->커널 복사1회
+  Free(srcp);
+
+  /*
+      mmap:   파일 내용을 명시적으로 읽지 않아도(read 호출 없음) "메모리에 매핑된 주소"를
+              rio_writen이 참조하는 순간 페이지 폴트로 커널이 파일 페이지를 올려주고, 유저->커널 한 번 복사만으로 소켓으로 간다.
+              
+      malloc: malloc으로 만든 버퍼는 비어 있으니, 먼저 파일 FD에서 유저 버퍼로 읽기(rio_readn)를 해야 하고,
+              이어서 유저->커널로 쓰기(rio_writen)를 해야 한다(복사가 한 번 더 생김). 
+  */
 }
 
 /* Derive file type from filename */
@@ -202,6 +236,9 @@ void get_filetype(char *filename, char *filetype)
   }
   else if (strstr(filename, ".jpg")) {
     strcpy(filetype, "image/jpeg");
+  } 
+  else if (strstr(filename, ".mpg") || strstr(filename, ".mpeg")) {
+    strcpy(filetype, "video/mpeg");
   }
   else {
     strcpy(filetype, "text/plain");
