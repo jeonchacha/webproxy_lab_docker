@@ -201,16 +201,16 @@ void serve_static(int fd, char *filename, int filesize, int is_haed)
   srcfd = Open(filename, O_RDONLY, 0);
 
   /* mmap으로 매핑 후 Rio_writen으로 본문 전송 */
-  // srcp = Mmap(0, filesize, PROT_READ, MAP_PRIVATE, srcfd, 0); // 파일을 가상메모리에 매핑
-  // Close(srcfd);
-  // Rio_writen(fd, srcp, filesize); // 유저->커널 복사1회
-  // Munmap(srcp, filesize);
+  srcp = Mmap(0, filesize, PROT_READ, MAP_PRIVATE, srcfd, 0); // 파일을 가상메모리에 매핑(읽기 없음)
+  Close(srcfd);
+  Rio_writen(fd, srcp, filesize); // 유저->커널 복사1회
+  Munmap(srcp, filesize);
 
   /* malloc + rio_readn + rio_writen */
   srcp = (char *)Malloc((size_t)filesize); // 힙 버퍼 확보
   ssize_t nread = Rio_readn(srcfd, srcp, (size_t)filesize); // 커널->유저 복사1회
   Close(srcfd);
-  Rio_writen(fd, srcp, (size_t)nread); // 유저->커널 복사1회
+  Rio_writen(fd, srcp, (size_t)nread); // 유저->커널 복사2회
   Free(srcp);
 
   /*
